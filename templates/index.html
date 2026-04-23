@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fake News Detector</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700;0,9..40,800;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div class="ambient ambient--left" aria-hidden="true"></div>
+    <div class="ambient ambient--right" aria-hidden="true"></div>
+
+    <div class="page">
+      <header class="hero">
+        <div class="hero__copy reveal">
+          <p class="eyebrow">AI-assisted text screening</p>
+          <div class="hero__brand">
+            <span class="hero__logo" aria-hidden="true">FN</span>
+            <h1>Fake News Detector</h1>
+          </div>
+          <p class="hero__text">
+            Drop in a headline or article snippet and get a quick confidence split between likely real
+            and likely fake content.
+          </p>
+          <div class="hero__chips">
+            <span class="chip">Fast scan</span>
+            <span class="chip">Probability bars</span>
+            <span class="chip">Demo model</span>
+          </div>
+        </div>
+
+        <aside class="hero__panel reveal reveal--delay">
+          <p class="hero__panel-label">Workflow</p>
+          <ol class="hero__steps">
+            <li>Paste text</li>
+            <li>Run analysis</li>
+            <li>Compare confidence</li>
+          </ol>
+        </aside>
+      </header>
+
+      <main class="card reveal reveal--delay-2">
+        <div class="card__glow" aria-hidden="true"></div>
+
+        <div class="card__top">
+          <div>
+            <p class="section-kicker">Input</p>
+            <label for="article" class="label">Paste headline or article snippet</label>
+          </div>
+          <span id="char-count" class="char-count mono">0 chars</span>
+        </div>
+
+        <textarea
+          id="article"
+          rows="8"
+          placeholder="Example: Scientists publish peer-reviewed study on vaccine safety in major journal..."
+        ></textarea>
+
+        <div class="actions">
+          <button type="button" id="analyze" class="btn btn--primary">Analyze</button>
+          <button type="button" id="clear" class="btn btn--ghost">Clear</button>
+        </div>
+
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+
+        <section id="result" class="result hidden" aria-live="polite">
+          <div class="result__header">
+            <div>
+              <p class="section-kicker">Result</p>
+              <h2 class="result__title">Prediction Snapshot</h2>
+            </div>
+            <p id="result-label" class="result__label">REAL</p>
+          </div>
+
+          <div class="meters">
+            <div class="meter meter--real">
+              <div class="meter__head">
+                <span>Real</span>
+                <span id="p-real" class="meter__value mono"></span>
+              </div>
+              <div class="meter__bar"><div id="bar-real" class="meter__fill meter__fill--real"></div></div>
+            </div>
+            <div class="meter meter--fake">
+              <div class="meter__head">
+                <span>Fake</span>
+                <span id="p-fake" class="meter__value mono"></span>
+              </div>
+              <div class="meter__bar"><div id="bar-fake" class="meter__fill meter__fill--fake"></div></div>
+            </div>
+          </div>
+
+          <p class="hint">
+            This is a demo model trained on a tiny sample. For production, train on a larger labeled
+            dataset and evaluate the model carefully before using it for decision-making.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer reveal reveal--delay-2">
+        <span>Run <code class="mono">python train_model.py</code> then <code class="mono">python app.py</code></span>
+      </footer>
+    </div>
+
+    <script>
+      const article = document.getElementById("article");
+      const btn = document.getElementById("analyze");
+      const clearBtn = document.getElementById("clear");
+      const status = document.getElementById("status");
+      const result = document.getElementById("result");
+      const resultLabel = document.getElementById("result-label");
+      const pReal = document.getElementById("p-real");
+      const pFake = document.getElementById("p-fake");
+      const barReal = document.getElementById("bar-real");
+      const barFake = document.getElementById("bar-fake");
+      const charCount = document.getElementById("char-count");
+
+      function updateCount() {
+        const count = article.value.trim().length;
+        charCount.textContent = `${count} chars`;
+      }
+
+      function setStatus(message, type = "") {
+        status.textContent = message;
+        status.className = `status${type ? ` status--${type}` : ""}`;
+      }
+
+      function setLoading(on) {
+        btn.disabled = on;
+        btn.textContent = on ? "Analyzing..." : "Analyze";
+      }
+
+      function setResultLabel(label) {
+        const normalized = String(label || "").toUpperCase();
+        resultLabel.textContent = normalized;
+        resultLabel.className = `result__label ${normalized === "REAL" ? "result__label--real" : "result__label--fake"}`;
+      }
+
+      article.addEventListener("input", updateCount);
+      updateCount();
+
+      btn.addEventListener("click", async () => {
+        const text = article.value.trim();
+        setStatus("");
+        result.classList.add("hidden");
+
+        if (!text) {
+          setStatus("Enter some text to analyze.", "error");
+          return;
+        }
+
+        setLoading(true);
+        setStatus("Running model inference...", "info");
+
+        try {
+          const res = await fetch("/predict", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          const data = await res.json();
+
+          if (!res.ok) {
+            setStatus(data.error || "Request failed.", "error");
+            return;
+          }
+
+          const pr = (data.probability_real * 100).toFixed(1);
+          const pf = (data.probability_fake * 100).toFixed(1);
+
+          setResultLabel(data.label);
+          pReal.textContent = pr + "%";
+          pFake.textContent = pf + "%";
+
+          barReal.style.width = "0%";
+          barFake.style.width = "0%";
+
+          requestAnimationFrame(() => {
+            barReal.style.width = pr + "%";
+            barFake.style.width = pf + "%";
+          });
+
+          result.classList.remove("hidden");
+          setStatus("Analysis complete.", "success");
+        } catch (e) {
+          setStatus("Network error. Is the server running?", "error");
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      clearBtn.addEventListener("click", () => {
+        article.value = "";
+        updateCount();
+        setStatus("");
+        result.classList.add("hidden");
+        barReal.style.width = "0%";
+        barFake.style.width = "0%";
+      });
+    </script>
+  </body>
+</html>
